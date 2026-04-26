@@ -50,6 +50,13 @@ export function ContextGraphPanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(!staticData);
+  // ReactFlow measures the DOM during render and produces output that doesn't
+  // match between server and client (different layout, different sizing). To
+  // avoid the React 19 hydration warning, render only the static header + a
+  // placeholder during SSR, and mount the real body only after the client has
+  // taken over.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Fetch
   useEffect(() => {
@@ -172,40 +179,49 @@ export function ContextGraphPanel({
         )}
       </header>
 
-      {/* Body — three panes */}
+      {/* Body — three panes. Skipped during SSR so ReactFlow doesn't trigger
+          a hydration mismatch from its DOM measurements. */}
       <div className="flex min-h-0 flex-1">
-        <div className="hidden md:block">
-          <SidebarList
-            nodes={nodes}
-            selectedNodeId={selectedId}
-            onSelect={(id) => setSelectedId(id)}
-          />
-        </div>
-        <div className="relative flex-1">
-          {loading && nodes.length === 0 ? (
+        {!mounted ? (
+          <div className="flex w-full items-center justify-center">
             <EmptyState message="loading…" />
-          ) : nodes.length === 0 ? (
-            <EmptyState message="graph is empty — run an agent and watch it form" />
-          ) : (
-            <GraphCanvas
-              nodes={nodes}
-              edges={edges}
-              selectedNodeId={selectedId}
-              freshNodeIds={freshIds}
-              onSelect={setSelectedId}
-            />
-          )}
-        </div>
-        {selectedNode && (
-          <div className="hidden lg:block">
-            <NodeDetailPanel
-              node={selectedNode}
-              edges={edges}
-              allNodes={nodes}
-              onClose={() => setSelectedId(null)}
-              onSelect={(id) => setSelectedId(id)}
-            />
           </div>
+        ) : (
+          <>
+            <div className="hidden md:block">
+              <SidebarList
+                nodes={nodes}
+                selectedNodeId={selectedId}
+                onSelect={(id) => setSelectedId(id)}
+              />
+            </div>
+            <div className="relative flex-1">
+              {loading && nodes.length === 0 ? (
+                <EmptyState message="loading…" />
+              ) : nodes.length === 0 ? (
+                <EmptyState message="graph is empty — run an agent and watch it form" />
+              ) : (
+                <GraphCanvas
+                  nodes={nodes}
+                  edges={edges}
+                  selectedNodeId={selectedId}
+                  freshNodeIds={freshIds}
+                  onSelect={setSelectedId}
+                />
+              )}
+            </div>
+            {selectedNode && (
+              <div className="hidden lg:block">
+                <NodeDetailPanel
+                  node={selectedNode}
+                  edges={edges}
+                  allNodes={nodes}
+                  onClose={() => setSelectedId(null)}
+                  onSelect={(id) => setSelectedId(id)}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
 
