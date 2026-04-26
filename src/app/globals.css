@@ -1,0 +1,136 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Mirrors SCSP-Hackathon-2026's brutalist lab-terminal theme. */
+
+@theme {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-2: #1a1a1a;
+
+  --color-ink: #f0f0e8;
+  --color-ink-muted: #a0a09a;
+  --color-ink-faint: #5a5a55;
+
+  --color-stroke: #2a2a2a;
+  --color-stroke-strong: #3a3a3a;
+  --color-stroke-soft: #1f1f1f;
+
+  --color-acid: #00e582;
+  --color-acid-dim: #00a85e;
+  --color-amber: #f0db4f;
+  --color-orange: #ff9f4d;
+  --color-magenta: #ff4dff;
+  --color-coral: #ff5a5a;
+
+  --color-agent-1: #00e582;
+  --color-agent-2: #4d9fff;
+  --color-agent-3: #ff9f4d;
+  --color-agent-4: #b366ff;
+  --color-agent-5: #f0db4f;
+  --color-agent-6: #00d9d9;
+  --color-agent-7: #ff5a8a;
+  --color-agent-8: #66ff8a;
+  --color-agent-9: #ff4dff;
+
+  --font-sans: var(--font-mono, "JetBrains Mono"), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: var(--font-mono, "JetBrains Mono"), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #f0f0e8;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  *,
+  *::before,
+  *::after {
+    border-radius: 0 !important;
+  }
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-feature-settings: "ss01", "ss02", "calt";
+    letter-spacing: -0.01em;
+  }
+  *::placeholder {
+    color: #5a5a55;
+  }
+}
+
+::selection {
+  background: var(--color-acid);
+  color: #0a0a0a;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a2a #0a0a0a;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border: 2px solid #0a0a0a;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #00a85e;
+}
+
+@keyframes pulse-bar {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes blink {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.cursor-block::after {
+  content: "▊";
+  display: inline-block;
+  margin-left: 0.15em;
+  color: var(--color-acid);
+  animation: blink 1s steps(1) infinite;
+}
+
+/* ReactFlow overrides — sharp + dark to match the rest of the app. */
+.react-flow__edge-text {
+  font-family: var(--font-mono) !important;
+}
+.react-flow__controls-button {
+  background: #141414 !important;
+  border-bottom: 1px solid #2a2a2a !important;
+  color: #a0a09a !important;
+}
+.react-flow__controls-button:hover {
+  background: #1a1a1a !important;
+}
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
