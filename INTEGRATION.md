@@ -2,17 +2,18 @@
 
 Three changes. Total ~30 minutes including `supabase db push` and a redeploy.
 
-> The branch `claude/implement-context-graph-1l3Gp` of `SCSP-Hackathon-2026`
-> already contains all of these. This doc is the recipe for review and for
-> applying it manually if the branch is out of sync.
+> **Status:** these changes have **already been merged into
+> `SCSP-Hackathon-2026/main`**. This doc is the recipe for understanding the
+> wiring or for applying it manually on top of any future fork that doesn't
+> already have it.
 
 ## Prerequisites
 
 - Same Supabase project as the main app (no separate project needed).
 - These env vars on Vercel + locally:
-  - `ANTHROPIC_API_KEY` (already required by main app)
+  - `OPENAI_API_KEY` — drives both the 9-agent pipeline (Responses API) and
+    the context graph (extraction + embeddings)
   - `SUPABASE_SERVICE_ROLE_KEY` (already required)
-  - **`OPENAI_API_KEY`** ← new, for embeddings
 
 ## 1 · Apply the migration
 
@@ -30,8 +31,8 @@ RLS policies (owner-only, same pattern as the rest of the schema).
 ## 2 · Copy the library + panel
 
 The library is plain TS and the panel is plain React — both consume only
-`@supabase/supabase-js`, `@anthropic-ai/sdk`, `openai`, and `reactflow`. The
-main app already has the first three; the rest is a one-liner add.
+`@supabase/supabase-js`, `openai`, and `reactflow`. The main app already has
+the first two; the rest is a one-liner add.
 
 ```bash
 # from the main repo root
@@ -42,7 +43,7 @@ cp -r ../context_graph/src/components/graph frontend/src/components/
 Add deps to `frontend/package.json`:
 
 ```json
-"openai": "^4.77.0",
+"openai": "^6.34.0",
 "d3-force": "^3.0.0"
 ```
 
@@ -68,7 +69,7 @@ extraction after each agent, and a context lookup before each agent.
 ```diff
  import "server-only";
  import { AGENTS, AGENT_BY_ID } from "@/lib/agents";
- import { callAgent } from "./anthropic";
+ import { callAgent } from "./openai";
  import { AGENT_PROMPTS } from "./prompts";
  import { summarizeDatasets } from "./hypgen";
  import type { createAdminClient } from "@/lib/supabase/admin";
@@ -87,13 +88,15 @@ In the per-agent loop, replace the existing `callAgent({ ... })` with:
 -        system: cfg.system,
 -        user: cfg.user({ ...ctxBase, priorOutputs: outputs }),
 -        useWebSearch: cfg.useWebSearch,
--        maxTokens: cfg.maxTokens,
+-        model: cfg.model,
+-        reasoningEffort: cfg.reasoningEffort,
+-        maxOutputTokens: cfg.maxTokens,
 -      });
 +      // 1. Look up relevant prior knowledge from the user's graph.
 +      const relevant = await findRelevantContext(admin, hypothesisTitle, {
-+        ownerId: job.owner_id,
++        ownerId,
 +        k: 6,
-+      });
++      }).catch(() => []);
 +      const contextBlock = buildContextBlock({ relevant });
 +
 +      const text = await callAgent({
@@ -101,13 +104,15 @@ In the per-agent loop, replace the existing `callAgent({ ... })` with:
 +        user:
 +          cfg.user({ ...ctxBase, priorOutputs: outputs }) + contextBlock,
 +        useWebSearch: cfg.useWebSearch,
-+        maxTokens: cfg.maxTokens,
++        model: cfg.model,
++        reasoningEffort: cfg.reasoningEffort,
++        maxOutputTokens: cfg.maxTokens,
 +      });
 +
 +      // 2. Extract entities from the new output. Fire-and-forget — failures
 +      //    must not break the pipeline.
 +      void extractAndStore(admin, text, {
-+        ownerId: job.owner_id,
++        ownerId,
 +        sourceResearchId: job.research_id,
 +        sourceJobId: jobId,
 +        sourceAgent: id,
@@ -115,10 +120,16 @@ In the per-agent loop, replace the existing `callAgent({ ... })` with:
 +      });
 ```
 
-> If `jobs` doesn't yet have `owner_id` populated for the active job (RLS in
-> the main app reaches it via `research.owner_id`), denormalise it on the
-> `jobs` row, or pass through `research.owner_id` from the load step at the
-> top of `runPipeline`. Both are one-line changes.
+> The `ownerId` value comes from the research row, not the job row. Add
+> `owner_id` to the research select at the top of `runPipeline`:
+>
+> ```diff
+> -    .select("problem_statement")
+> +    .select("problem_statement, owner_id")
+> ```
+>
+> Then capture it as `const ownerId = research.owner_id as string;`. The
+> `findRelevantContext` and `extractAndStore` calls above both reference it.
 
 ## 4 · Embed the panel in `/research/[id]`
 
