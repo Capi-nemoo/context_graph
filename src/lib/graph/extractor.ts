@@ -1,24 +1,24 @@
-// Entity + relation extractor. Calls Claude Haiku 4.5 with a strict JSON
+// Entity + relation extractor. Calls OpenAI gpt-5-mini with a strict JSON
 // schema, gets back a small set of nodes and edges, then upserts via
 // upsertGraph(). Designed to be called fire-and-forget after every pipeline
 // agent finishes — failures must NOT take down the main pipeline.
 
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam, TextBlock } from "@anthropic-ai/sdk/resources/messages";
+import OpenAI from "openai";
 import { NODE_TYPES, type ExtractionResult, type NodeType } from "./types";
 
-let _client: Anthropic | null = null;
-function client(): Anthropic {
+let _client: OpenAI | null = null;
+function client(): OpenAI {
   if (_client) return _client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  _client = new Anthropic({ apiKey });
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  _client = new OpenAI({ apiKey });
   return _client;
 }
 
-// Use Haiku for extraction — it's structured + cheap. ~$0.001 per agent output.
-const EXTRACTOR_MODEL = "claude-haiku-4-5-20251001";
+// gpt-5-mini at low reasoning effort: structured output + cheap.
+// Bump to "medium" if extraction quality dips on long agent outputs.
+const EXTRACTOR_MODEL = "gpt-5-mini";
 
 const SYSTEM = `You extract scientific entities and their relationships from agent-generated text.
 
@@ -36,6 +36,9 @@ Rules:
 
 Return ONLY JSON.`;
 
+// OpenAI strict mode requires every property to be in `required` and no
+// minItems/maxItems. The "cap at 12" guidance lives in the system prompt and
+// is enforced post-parse below.
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -66,7 +69,14 @@ const SCHEMA = {
           relation: { type: "string" },
           weight: { type: "number" },
         },
-        required: ["from_label", "from_type", "to_label", "to_type", "relation"],
+        required: [
+          "from_label",
+          "from_type",
+          "to_label",
+          "to_type",
+          "relation",
+          "weight",
+        ],
       },
     },
   },
@@ -92,31 +102,29 @@ export async function extractEntities(
   const text = agentOutput.trim();
   if (text.length < 50) return { nodes: [], edges: [] };
 
-  const c = client();
   const userPrompt = agentContext
     ? `Source agent: ${agentContext.agent}\n${
         agentContext.hypothesis ? `Hypothesis: ${agentContext.hypothesis}\n` : ""
       }\nText:\n${text.slice(0, 12000)}`
     : `Text:\n${text.slice(0, 12000)}`;
 
-  const messages: MessageParam[] = [{ role: "user", content: userPrompt }];
-
-  const response = await c.messages.create({
+  const res = await client().responses.create({
     model: EXTRACTOR_MODEL,
-    max_tokens: 1500,
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-    output_config: {
-      format: { type: "json_schema", schema: SCHEMA as unknown as Record<string, unknown> },
+    instructions: SYSTEM,
+    input: userPrompt,
+    reasoning: { effort: "low" },
+    max_output_tokens: 1500,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "graph_extraction",
+        strict: true,
+        schema: SCHEMA as unknown as Record<string, unknown>,
+      },
     },
-    messages,
   });
 
-  const raw = response.content
-    .filter((b): b is TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-
+  const raw = res.output_text?.trim() ?? "";
   if (!raw) return { nodes: [], edges: [] };
 
   const parsed = JSON.parse(raw) as RawExtraction;
